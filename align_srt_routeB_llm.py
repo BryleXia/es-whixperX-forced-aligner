@@ -23,6 +23,7 @@
 """
 
 import json
+import os
 import re
 import time
 from difflib import SequenceMatcher
@@ -44,8 +45,8 @@ WHISPER_MODEL_SIZE = "large-v3"
 WHISPER_COMPUTE_TYPE = "float16"
 
 # ── LLM 配置（AiHubMix + Qwen）──────────────────────────────────
-LLM_API_KEY  = "sk-4PQTAz7f2VlLFz5vD0B2C297A50440B9B2E7D60145AeFb55"
-LLM_BASE_URL = "https://aihubmix.com/v1"
+LLM_API_KEY  = os.environ.get("LLM_API_KEY", "")    # 从环境变量读取，避免泄露到公开仓库
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://aihubmix.com/v1")
 LLM_MODEL    = "qwen3.6-plus"
 LLM_TEMPERATURE = 0.1
 LLM_MAX_TOKENS  = 2000
@@ -387,7 +388,6 @@ def main():
     # 逐文件处理
     total_aligned = 0
     total_sentences = 0
-    llm_triggered = False
 
     for audio_path in audio_files:
         stem = audio_path.stem
@@ -404,10 +404,6 @@ def main():
                 print(f"  已保存: {out_path.name}")
                 total_aligned += len(segments)
                 total_sentences += len(parse_srt(srt_path))
-                # 检查是否有 LLM 兜底被触发
-                if any(r.get("method") == "pending_llm"
-                       for r in sm_align([], [])):  # simplified check
-                    llm_triggered = True
         except Exception as e:
             import traceback
             print(f"  失败: {e}")
