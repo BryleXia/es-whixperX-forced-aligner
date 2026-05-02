@@ -16,6 +16,7 @@ import os
 import re
 import unicodedata
 from bisect import bisect_left
+from difflib import SequenceMatcher
 from pathlib import Path
 import argparse
 
@@ -38,7 +39,10 @@ LANG_CONFIG = {
     "es": {"name": "Spanish", "align_model_name": None},
     "fr": {"name": "French", "align_model_name": None},
     "ru": {"name": "Russian", "align_model_name": "jonatasgrosman/wav2vec2-large-xlsr-53-russian"},
+    "ja": {"name": "Japanese", "align_model_name": None},
 }
+
+CHAR_ALIGNMENT_LANGS = {"ja"}
 
 # wav2vec2 单段最大处理时长（秒）。超过此阈值才触发分块；
 # 典型录音均低于30分钟，整体作为一个 segment 处理。
@@ -83,8 +87,25 @@ def write_srt(segments, out_path):
     Path(out_path).write_text("\n".join(lines), encoding="utf-8")
 
 
+def _is_alignment_char(ch):
+    """保留字母、数字和日语长音符；过滤标点、空白和控制字符。"""
+    if ch == "ー":
+        return True
+    cat = unicodedata.category(ch)
+    return cat[0] in {"L", "N"}
+
+
+def normalize_ja_chars(text):
+    """日语专用：规范化为字符序列，保留汉字/假名/外文/数字的逐字符边界。"""
+    text = unicodedata.normalize("NFKC", text).lower()
+    return [ch for ch in text if _is_alignment_char(ch)]
+
+
 def normalize_for_dp(text):
     """规范化文本为词序列，连字符拆为空格，数字展开为对应语言读法"""
+    if LANGUAGE in CHAR_ALIGNMENT_LANGS:
+        return normalize_ja_chars(text)
+
     if _HAS_NUM2WORDS:
         text = re.sub(r'\b\d+\b', lambda m: _n2w(int(m.group()), lang=LANGUAGE), text)
     text = text.lower()
@@ -109,6 +130,28 @@ def extract_words(aligned_result):
     return words
 
 
+def extract_chars(aligned_result):
+    """从 whisperx align 结果中提取字符级时间戳，兼容不同版本的返回结构。"""
+    chars = []
+    for seg in aligned_result["segments"]:
+        char_items = seg.get("chars")
+        if not char_items:
+            char_items = []
+            for w in seg.get("words", []):
+                char_items.extend(w.get("chars", []))
+
+        for c in char_items:
+            raw = c.get("char", c.get("text", c.get("word", "")))
+            for part in normalize_ja_chars(str(raw)):
+                if "start" in c and "end" in c:
+                    chars.append({
+                        "char": part,
+                        "start": c["start"],
+                        "end": c["end"],
+                    })
+    return chars
+
+
 # ──────────────────── 后处理：词速异常值守门员 v2 ─────────────────
 
 def _load_vad_model_safe():
@@ -125,7 +168,7 @@ def _load_vad_model_safe():
 
 def snap_outlier_starts(segments, audio, vad_model=None, sr=16000,
                         min_move_s=1.5,
-                        min_words_per_sec=1.5,
+                        min_words_per_sec=None,
                         min_suspect_duration=6.0):
     """
     词速异常值守门员：只修正词速异常低的字幕行（场景转场早开始）。
@@ -137,6 +180,11 @@ def snap_outlier_starts(segments, audio, vad_model=None, sr=16000,
     检测到可疑行后，在该行时间窗口 [orig_start + min_move_s, orig_end] 内
     搜索第一个 VAD / RMS 语音起点，吸附过去。
     """
+    if min_words_per_sec is None:
+        min_words_per_sec = 3.0 if LANGUAGE in CHAR_ALIGNMENT_LANGS else 1.5
+
+    unit_label = "字/秒" if LANGUAGE in CHAR_ALIGNMENT_LANGS else "词/秒"
+
     # 预计算 VAD 时间段（一次性，全音频）
     speech_ts = None
     vad_starts = None
@@ -215,8 +263,8 @@ def snap_outlier_starts(segments, audio, vad_model=None, sr=16000,
 
         result.append({**seg, "start": new_start})
 
-    print(f"  词速异常修正: {snapped} 行起点被吸附"
-          f"（触发阈值: <{min_words_per_sec} 词/秒 且时长 >{min_suspect_duration}s）")
+    print(f"  语速异常修正: {snapped} 行起点被吸附"
+          f"（触发阈值: <{min_words_per_sec} {unit_label} 且时长 >{min_suspect_duration}s）")
     return result
 
 
@@ -335,6 +383,89 @@ def match_srt_to_words_dp(srt_lines, words):
     return result
 
 
+def match_srt_to_chars_dp(srt_lines, chars):
+    """
+    日语字符级 DP：把 SRT 字符序列映射到字符级时间戳。
+    避免日语无空格文本在 split() 下退化成整句 token。
+    """
+    if not chars:
+        return [{"start": 0, "end": 0, "text": line} for line in srt_lines]
+
+    srt_seq = []
+    for i, line in enumerate(srt_lines):
+        for ch in normalize_ja_chars(line):
+            srt_seq.append((ch, i))
+
+    align_seq = []
+    for j, c in enumerate(chars):
+        align_seq.append((c["char"], j))
+
+    # Route A 的对齐文本来自 SRT 本身，日语字符序列通常应完全一致。
+    # 先走 O(N) 快路径，避免长音频字符级 LCS 产生过大的 DP 矩阵。
+    if len(srt_seq) == len(align_seq) and all(a[0] == b[0] for a, b in zip(srt_seq, align_seq)):
+        pairs = [(i, i) for i in range(len(srt_seq))]
+    else:
+        matcher = SequenceMatcher(
+            None,
+            [x[0] for x in srt_seq],
+            [x[0] for x in align_seq],
+            autojunk=False,
+        )
+        pairs = []
+        for block in matcher.get_matching_blocks():
+            for k in range(block.size):
+                pairs.append((block.a + k, block.b + k))
+
+    line_first = {}
+    line_last = {}
+    for srt_i, align_i in pairs:
+        line_idx = srt_seq[srt_i][1]
+        char_idx = align_seq[align_i][1]
+        if line_idx not in line_first:
+            line_first[line_idx] = char_idx
+        line_last[line_idx] = char_idx
+
+    raw = []
+    for i, line in enumerate(srt_lines):
+        if i in line_first:
+            seg_start = chars[line_first[i]]["start"]
+            seg_end = chars[line_last[i]]["end"]
+            raw.append({"start": seg_start, "end": seg_end, "text": line, "_aligned": True})
+        else:
+            raw.append({"text": line, "_aligned": False})
+
+    result = []
+    i = 0
+    while i < len(raw):
+        if raw[i]["_aligned"]:
+            result.append({"start": raw[i]["start"], "end": raw[i]["end"], "text": raw[i]["text"]})
+            i += 1
+            continue
+
+        gap_start = i
+        while i < len(raw) and not raw[i]["_aligned"]:
+            i += 1
+        gap_end = i
+
+        t_left = result[-1]["end"] if result else 0
+        t_right = raw[i]["start"] if i < len(raw) else (t_left + 0.5 * (gap_end - gap_start))
+        lengths = [max(len(normalize_ja_chars(raw[j]["text"])), 1) for j in range(gap_start, gap_end)]
+        total_len = sum(lengths)
+        span = t_right - t_left
+        cursor = t_left
+        for k, j in enumerate(range(gap_start, gap_end)):
+            share = span * lengths[k] / total_len
+            result.append({"start": cursor, "end": cursor + share, "text": raw[j]["text"]})
+            cursor += share
+
+    for i in range(len(result) - 1):
+        next_start = result[i + 1]["start"]
+        if result[i]["end"] > next_start - 0.05:
+            result[i]["end"] = max(next_start - 0.05, result[i]["start"] + 0.1)
+
+    return result
+
+
 # ──────────────────────── 路线A 核心逻辑 ─────────────────────────
 
 def build_segments_from_srt(srt_lines, audio_duration):
@@ -386,22 +517,30 @@ def process_file(audio_path, srt_path, align_model, metadata, vad_model=None):
         metadata,
         audio,
         DEVICE,
-        return_char_alignments=False,
+        return_char_alignments=LANGUAGE in CHAR_ALIGNMENT_LANGS,
     )
 
-    words = extract_words(aligned)
-    print(f"  获得词级时间戳: {len(words)} 个词")
+    if LANGUAGE in CHAR_ALIGNMENT_LANGS:
+        units = extract_chars(aligned)
+        print(f"  获得字符级时间戳: {len(units)} 个字符")
+    else:
+        units = extract_words(aligned)
+        print(f"  获得词级时间戳: {len(units)} 个词")
 
-    if not words:
-        print("  警告：未获得任何词级时间戳！检查音频/模型。")
+    if not units:
+        print("  警告：未获得任何时间戳！检查音频/模型。")
         return [{"start": 0, "end": 0.5, "text": line} for line in srt_lines]
 
     # 打印 LCS 匹配率诊断
-    srt_total_words = sum(len(normalize_for_dp(l)) for l in srt_lines)
-    print(f"  SRT总词数: {srt_total_words}  ASR词数: {len(words)}")
+    srt_total_units = sum(len(normalize_for_dp(l)) for l in srt_lines)
+    unit_label = "字符" if LANGUAGE in CHAR_ALIGNMENT_LANGS else "词"
+    print(f"  SRT总{unit_label}数: {srt_total_units}  对齐{unit_label}数: {len(units)}")
 
-    # ── DP 对齐：词时间戳 → SRT 行时间戳 ──
-    output_segments = match_srt_to_words_dp(srt_lines, words)
+    # ── DP 对齐：时间戳 → SRT 行时间戳 ──
+    if LANGUAGE in CHAR_ALIGNMENT_LANGS:
+        output_segments = match_srt_to_chars_dp(srt_lines, units)
+    else:
+        output_segments = match_srt_to_words_dp(srt_lines, units)
     print(f"  映射完成: {len(output_segments)} 条")
 
     # 后处理：异常值守门员（只修正起点比实际语音早超过1.5秒的行）

@@ -1,7 +1,7 @@
 # 字幕强制对齐工具（多语言版）
 
 > 把字幕文件的时间戳准确对齐到音频上。提供三套互补方案，覆盖不同录音质量场景。
-> 支持 **西班牙语、法语、俄语**，切换语言只需一个参数。
+> 支持 **西班牙语、法语、俄语、日语**，切换语言只需一个参数。
 > 方案 A 在 5 段纪录片音频（390 条字幕，约 56 分钟）上经过人工逐句审听，**0 条错误**；在 5 段俄语纪录片（1028 词）上自动匹配率达 **98.8%**。
 
 **作者：** BryleXia · 北京第二外国语学院欧洲学院
@@ -94,7 +94,7 @@ wav2vec2 返回词级时间戳，再用 LCS 动态规划映射回每一行字幕
 
 在场景切换（长时间静音）的地方，CTC 对齐器有时会把下一句字幕的起点放得过早。同时满足以下三个条件时触发修正：
 
-1. **词速低于 1.5 词/秒**（正常语速 2~4 词/秒）
+1. **语速低于 1.5 词/秒**（日语：**3.0 字/秒**；正常语速 2~4 词/秒）
 2. **时长超过 6 秒**
 3. **与前一句间隔小于 0.3 秒**（被强行塞进去的标志）
 
@@ -225,15 +225,18 @@ LLM 的核心能力在于**语义理解**——它知道"朗读者把 X 读成�
 
 三个方案均已支持多语言。方案 A 支持命令行参数一键切换；方案 B/C 修改脚本顶部的 `LANGUAGE` 变量即可：
 
-| 语言代码 | 语言 | 方案 A/C 对齐模型 | 方案 B ASR 模型 |
-|---------|------|-----------------|---------------|
-| `es` | 西班牙语 | WhisperX 默认 wav2vec2 | faster-whisper large-v3 |
-| `fr` | 法语 | WhisperX 默认 wav2vec2 | faster-whisper large-v3 |
-| `ru` | 俄语 | `jonatasgrosman/wav2vec2-large-xlsr-53-russian` | faster-whisper large-v3 |
+| 语言代码 | 语言 | 方案 A/C 对齐模型 | 对齐粒度 | 方案 B ASR 模型 |
+|---------|------|-----------------|---------|---------------|
+| `es` | 西班牙语 | WhisperX 默认 wav2vec2 | 词级 | faster-whisper large-v3 |
+| `fr` | 法语 | WhisperX 默认 wav2vec2 | 词级 | faster-whisper large-v3 |
+| `ru` | 俄语 | `jonatasgrosman/wav2vec2-large-xlsr-53-russian` | 词级 | faster-whisper large-v3 |
+| `ja` | 日语 | WhisperX 默认 wav2vec2 | **字符级** | faster-whisper large-v3 |
 
 **俄语验证：** 在 5 段俄语纪录片音频（约 56 分钟，1028 词）上测试，方案 A 自动匹配率 **98.8%**（1016/1028）。CTC 模型 `wav2vec2-large-xlsr-53-russian` 对俄语有效，非模型限制。
 
-**输入格式要求：** 字幕需为 UTF-8 编码的 SRT 格式，法语和俄语的 Unicode 变音符号会被自动归一化处理。
+**日语特殊处理：** 日语不使用空格分词，因此方案 A 对日语采用字符级对齐策略——将文本拆分为汉字/假名/外文字符序列，用 `SequenceMatcher` 进行字符级 LCS 匹配，再映射回每行 SRT 的时间戳。同时语速异常检测阈值也从"词/秒"切换为"字/秒"。
+
+**输入格式要求：** 字幕需为 UTF-8 编码的 SRT 格式，法语、俄语、日语的 Unicode 字符会被自动归一化处理。
 
 ---
 
@@ -321,9 +324,11 @@ python align_srt_routeA.py
 # 切换语言
 python align_srt_routeA.py --lang es
 python align_srt_routeA.py --lang fr
+python align_srt_routeA.py --lang ja
 
 # 自定义目录
 python align_srt_routeA.py --lang ru --audio-dir /root/audio --output-dir /root/output
+python align_srt_routeA.py --lang ja --audio-dir /root/audio --output-dir /root/output
 ```
 
 输出目录：`/root/aligned_routeA/`
@@ -336,6 +341,9 @@ python align_srt_routeA_multi.py --lang es --audio-dir /root/input --output-dir 
 
 # 调整并行数
 python align_srt_routeA_multi.py --lang ru --audio-dir /root/audio --output-dir /root/output --workers 3
+
+# 日语（字符级对齐）
+python align_srt_routeA_multi.py --lang ja --audio-dir /root/input --output-dir /root/aligned_routeA --workers 5
 ```
 
 输出目录与原脚本一致。运行结束自动打印加速比。
@@ -396,7 +404,7 @@ TORCH_HOME=/root/autodl-tmp/torch
 - **方案 B** 依赖 LLM API 调用，需要网络连接和 API 费用；且 LLM 裁判并非 100% 可靠，需人工抽检验证
 - **方案 C** 依赖方案 B 的锚点覆盖率；若 B 完全失败则退化为纯方案 A
 - **超长音频**（单段 > 30 分钟）方案 A 自动分块处理，方案 B/C 无此限制
-- **俄语对齐**使用社区维护的 wav2vec2 模型，精度可能略低于西/法语的 WhisperX 内置模型，建议对齐后人工抽检
+- **俄语对齐**使用社区维护的 wav2vec2 模型，**日语对齐**使用字符级策略（非词级），精度可能略低于西/法语的 WhisperX 内置模型，建议对齐后人工抽检
 - **音频截断**：上传不完整的 WAV 文件（文件头与实际数据不符）会导致 CTC 完全失败。请检查文件大小是否合理
 
 ---

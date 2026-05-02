@@ -97,20 +97,28 @@ def worker_fn(task):
 
         aligned = whisperx.align(
             segments, align_model, metadata, audio, device,
-            return_char_alignments=False,
+            return_char_alignments=language in routeA.CHAR_ALIGNMENT_LANGS,
         )
 
-        words = routeA.extract_words(aligned)
-        print(f"{prefix}   获得词级时间戳: {len(words)} 个词")
+        if language in routeA.CHAR_ALIGNMENT_LANGS:
+            units = routeA.extract_chars(aligned)
+            print(f"{prefix}   获得字符级时间戳: {len(units)} 个字符")
+        else:
+            units = routeA.extract_words(aligned)
+            print(f"{prefix}   获得词级时间戳: {len(units)} 个词")
 
-        if not words:
-            print(f"{prefix}   警告：未获得任何词级时间戳！")
+        if not units:
+            print(f"{prefix}   警告：未获得任何时间戳！")
             output_segments = [{"start": 0, "end": 0.5, "text": line} for line in srt_lines]
         else:
-            srt_total_words = sum(len(routeA.normalize_for_dp(l)) for l in srt_lines)
-            print(f"{prefix}   SRT总词数: {srt_total_words}  ASR词数: {len(words)}")
+            srt_total_units = sum(len(routeA.normalize_for_dp(l)) for l in srt_lines)
+            unit_label = "字符" if language in routeA.CHAR_ALIGNMENT_LANGS else "词"
+            print(f"{prefix}   SRT总{unit_label}数: {srt_total_units}  对齐{unit_label}数: {len(units)}")
 
-            output_segments = routeA.match_srt_to_words_dp(srt_lines, words)
+            if language in routeA.CHAR_ALIGNMENT_LANGS:
+                output_segments = routeA.match_srt_to_chars_dp(srt_lines, units)
+            else:
+                output_segments = routeA.match_srt_to_words_dp(srt_lines, units)
             print(f"{prefix}   映射完成: {len(output_segments)} 条")
 
             output_segments = routeA.snap_outlier_starts(

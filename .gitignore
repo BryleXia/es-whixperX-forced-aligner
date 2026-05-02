@@ -1,8 +1,12 @@
 whisperx-env/
-文字时间轴对齐案例【raw】/
+样本数据/
 aligned/
 aligned.zip
 __pycache__/
 *.pyc
 .claude/
 archive/
+生产记录/
+俄语测试/
+*.aac
+*.jpg
