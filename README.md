@@ -9,7 +9,7 @@
 - `align_srt_routeA_multi.py` — 方案 A 多进程并行版
 - `align_srt_routeB_llm.py` — 方案 B（ASR + LLM 语义对齐）
 - `align_srt_routeC_hybrid.py` — 方案 C（混合对齐）
-- `transcribe.py` — 课堂录音转文字稿
+- `docx_to_srt.py` — 日语学院 docx 双列表格转 SRT（前端适配）
 
 ---
 
@@ -253,6 +253,49 @@ python transcribe.py recording1.aac recording2.aac
 
 # 指定输出目录
 python transcribe.py recording1.aac --output-dir /root/transcripts
+```
+
+---
+
+## docx 转 SRT（日语学院适配）
+
+日语学院的译文常以 **Word 双列表格** 形式提供（第一列中文原文，第二列日文译文），与对齐脚本所需的 SRT 格式不兼容。
+
+### 表格格式要求
+
+| 列 | 内容 |
+|---|---|
+| 第一列 | 中文原文 |
+| 第二列 | 日文译文（需提取的目标文本） |
+
+- 每个单元格内可包含多个自然段落，以换行分隔。
+- 脚本自动跳过表头行。
+
+### 自动模糊匹配音频
+
+docx 文件名（如 `zh-ja_tour_muse_0020_seg001.docx`）与音频文件名（如 `ja_tour_muse_0020_seg001_tgt.wav`）常不一致。脚本会自动扫描同目录音频，用模糊匹配确定最佳 SRT 文件名，确保对齐脚本能正确配对。
+
+### 使用示例
+
+```bash
+# 基本用法（音频与 docx 同目录）
+python docx_to_srt.py --input-dir /root/日语/muse-raw20.21 --output-dir /root/日语/muse-raw20.21
+
+# 指定独立音频目录
+python docx_to_srt.py --input-dir /root/docx --output-dir /root/srt --audio-dir /root/audio
+```
+
+输出文件名示例：
+- `zh-ja_tour_muse_0020_seg001.docx` → `ja_tour_muse_0020_seg001_tgt.asr.qc.srt`
+
+### 完整日语工作流
+
+```bash
+# Step 1: docx → SRT
+python docx_to_srt.py --input-dir /root/日语/muse-raw20.21 --output-dir /root/日语/muse-raw20.21
+
+# Step 2: SRT + 音频 → 对齐（5 进程并行）
+python align_srt_routeA_multi.py --lang ja --audio-dir /root/日语/muse-raw20.21 --output-dir /root/日语/muse-raw20.21/aligned --workers 5
 ```
 
 每段录音输出一个 `.txt` 文件，根据静音间隔自动分段。
