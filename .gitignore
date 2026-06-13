@@ -5,6 +5,7 @@ aligned.zip
 __pycache__/
 *.pyc
 .claude/
+!.claude/skills/
 archive/
 生产记录/
 俄语测试/
