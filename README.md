@@ -133,7 +133,7 @@
 
 ## 方案 A 并行版
 
-生产环境中每次任务通常包含多个音频-SRT 对。原脚本串行处理，GPU 利用率低（wav2vec2 约 1.2GB 显存，RTX 5090 的 32GB 大量闲置）。
+生产环境中每次任务通常包含多个音频-SRT 对。原脚本串行处理，GPU 利用率低（wav2vec2 约 1.2GB 显存，RTX PRO 6000 的 96GB 实测稳定 5 进程）。
 
 并行版（`align_srt_routeA_multi.py`）每个子进程独立加载模型，多个文件同时处理：
 
@@ -215,7 +215,7 @@ python align_srt_routeA.py --lang ja --audio-dir /root/audio --output-dir /root/
 python align_srt_routeA_multi.py --lang es --audio-dir /root/input --output-dir /root/aligned_routeA --workers 5
 
 # 调整并行数
-python align_srt_routeA_multi.py --lang ru --audio-dir /root/audio --output-dir /root/output --workers 3
+python align_srt_routeA_multi.py --lang ru --audio-dir /root/audio --output-dir /root/output --workers 5
 
 # 日语（字符级对齐）
 python align_srt_routeA_multi.py --lang ja --audio-dir /root/input --output-dir /root/aligned_routeA --workers 5

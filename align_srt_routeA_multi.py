@@ -3,7 +3,7 @@
 
 核心思路：
 - 每个子进程独立加载 wav2vec2 + VAD 模型到 GPU
-- wav2vec2 ~1.2GB × N 进程，RTX 5090 (32GB) 轻松容纳 5-8 个
+- wav2vec2 ~1.2GB × N 进程，RTX PRO 6000 (96GB) 实测稳定 5 个
 - 所有核心对齐逻辑复用 align_srt_routeA.py，本脚本只负责并行调度
 
 用法：
@@ -162,7 +162,7 @@ def main():
 
     # ── 扫描音频文件 ──
     audio_files = sorted(
-        f for ext in ("*.m4a", "*.mp3", "*.wav", "*.flac")
+        f for ext in ("*.m4a", "*.mp3", "*.wav", "*.WAV", "*.flac")
         for f in audio_dir.glob(ext)
     )
     if not audio_files:

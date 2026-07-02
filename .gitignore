@@ -1,13 +1,44 @@
-whisperx-env/
-样本数据/
-aligned/
-aligned.zip
+# Python
 __pycache__/
 *.pyc
+
+# Virtual environment
+whisperx-env/
+
+# Claude
 .claude/
 !.claude/skills/
+
+# Sample data and archives
+样本数据/
 archive/
-生产记录/
+
+# Data directories (language-specific test/production data)
+西语/
+法语/
 俄语测试/
+日语/
+debug/
+新建文件夹/
+
+# Audio files
+*.m4a
+*.wav
+*.WAV
 *.aac
+*.mp3
+*.flac
+
+# Archives
+*.zip
+
+# Images
 *.jpg
+*.png
+
+# Data files
+*.xlsx
+
+# Aligned outputs
+aligned/
+aligned.zip

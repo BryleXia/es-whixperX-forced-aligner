@@ -1,11 +1,13 @@
 ---
 name: align-batch
-description: 处理用户给的本地 WAV+SRT 语料目录：扫描命名问题、规范化文件名、压缩音频到 16k 单声道、生成 AutoDL 上传/对齐/打包命令。当用户提到对齐批处理、上传服务器前的语料准备、或直接给一个含 wav/srt 的本地目录路径时使用。
+description: 处理用户给的本地 WAV+SRT 语料目录：扫描命名问题、规范化文件名、压缩音频到 16k 单声道、生成 AutoDL 上传/对齐/打包命令。当用户提到对齐批处理、上传服务器前的语料准备、或直接给一个含 wav/srt 的本地目录路径时使用。支持「无 SRT 先转录」分支：目录里只有 WAV 没有 SRT 时，额外生成 WhisperX 转录命令，转录后再交给 Route A 精对齐。
 ---
 
 # align-batch：语料批处理半自动流程
 
 用户会给你一个包含 WAV+SRT 文件的本地目录，你需要完成以下步骤：
+
+> **流程分支：** 目录里每个 WAV 都有配对 SRT → 走标准流程（Step 1→4）。目录里**只有 WAV 没有 SRT** → 走「先转录再对齐」分支（Step 1 扫描后进入 Step 1.5，转录命令并入 Step 4）。两种分支的本地预处理（重命名/压缩）完全一样，区别只在 Step 4 多一条 WhisperX 转录指令。
 
 ## Step 0：解压 zip 文件（如果有）
 
@@ -27,7 +29,21 @@ description: 处理用户给的本地 WAV+SRT 语料目录：扫描命名问题�
 
 同时检查 WAV 音频参数（采样率、声道数、比特率），如果不是 16kHz 单声道，报告给用户并建议压缩。
 
+**注意：meta.json 里的 `sample_rate` 字段经常不可信**（实测出现过标 16kHz 实际是 48kHz 立体声）。必须用 Python `wave` 模块读 WAV 头实测，不要信 meta.json。
+
 把发现的问题逐条报告给用户，等用户确认后再执行重命名和压缩。
+
+## Step 1.5：判断是否走「先转录」分支
+
+统计 WAV 和 SRT 的配对情况：
+
+- **每个 WAV 都有配对 SRT** → 标准流程，直接跳到 Step 2
+- **目录里只有 WAV，没有任何 SRT**（或部分 WAV 缺 SRT）→ 走「先转录再对齐」分支：
+  1. 明确告诉用户：「检测到 N 个 WAV 没有参考 SRT，Route A 需要正确文本才能对齐，需先用 WhisperX 跑出初稿 SRT（文本来自 ASR、时间戳暂不精确），再交给 Route A 精对齐」
+  2. 本地预处理（重命名/压缩）照常走 Step 2、Step 3
+  3. Step 4 的服务器命令里，在 Route A 对齐之前插入 WhisperX 转录步骤（见 Step 4 的转录分支）
+
+这条分支不影响本地流程，只是 Step 4 多一条转录指令。转录和精对齐都在服务器上做，本地无需准备 SRT。
 
 ## Step 2：执行重命名
 
@@ -73,6 +89,38 @@ whisperx.load_audio() 内部用 FFmpeg 强制重采样到 16kHz 单声道，48kH
 ### 上传提示
 提醒用户将**压缩后的目录**（带 `_16k` 后缀的）上传到服务器。
 
+### 转录分支（仅 Step 1.5 判定走「先转录」时执行）
+
+如果目录原本没有 SRT，先在服务器上用 WhisperX 跑出参考 SRT，再做 Route A 对齐。
+
+**先设 HF 环境（每次新终端，单行）：**
+
+```
+export HF_ENDPOINT=https://hf-mirror.com && export HF_HOME=/root/autodl-tmp/huggingface && export TORCH_HOME=/root/autodl-tmp/torch && export HF_HUB_OFFLINE=1
+```
+
+**WhisperX 转录（large-v3 已缓存，输出 SRT）：**
+
+单文件：
+```
+whisperx /root/<目录>/<文件名>.wav --model large-v3 --language es --output_format srt --output_dir /root/<目录>/
+```
+
+多文件（一次性把所有 wav 列在后面）：
+```
+whisperx /root/<目录>/<文件1>.wav /root/<目录>/<文件2>.wav --model large-v3 --language es --output_format srt --output_dir /root/<目录>/
+```
+
+`--language` 跟着 `--lang` 走（es/fr/ru/ja）。
+
+**重命名为 Route A 识别格式（`*.asr.qc.srt`）：**
+
+```
+for f in /root/<目录>/*.srt; do mv "$f" "${f%.srt}.asr.qc.srt"; done
+```
+
+转录完成后，目录里每个 wav 都有了配对的 `*.asr.qc.srt`，接着走下面的 Route A 对齐。
+
 ### 运行对齐
 ```
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python align_srt_routeA_multi.py --lang es --audio-dir <服务器目录路径> --output-dir <服务器目录路径>/aligned_routeA --workers <文件数>
@@ -97,4 +145,6 @@ cd <服务器目录路径的父目录> && zip -r aligned_routeA.zip aligned_rout
 - **OOM 恢复**：如果部分文件因 CUDA out of memory 失败，用 `--workers 1` 重跑失败文件即可，已成功的结果会被覆盖但不会丢失
 - 如果根目录有其他无关音频，建议用户放到子目录避免误处理
 - AutoDL 服务器每次新终端需先设置 HF 镜像：`export HF_ENDPOINT=https://hf-mirror.com`
+- **WhisperX 转录必须加离线环境变量**：`HF_HOME=/root/autodl-tmp/huggingface` + `HF_HUB_OFFLINE=1`，否则会因网络拉模型报 `LocalEntryNotFoundError`（即使镜像已设也不够）
+- **先转录分支的产物是「文本对、时间戳不准」的 SRT**，正好喂给 Route A 做精对齐——Route A 不在乎初稿时间戳，只用文本。转录和精对齐的角色分工：WhisperX 出文本，wav2vec2 出精确时间戳
 - **服务器指令永远不要换行**，每条命令必须是完整的单行，方便用户直接复制粘贴

@@ -69,8 +69,13 @@ def parse_srt(srt_path):
 
 
 def seconds_to_srt_time(s):
+    if s < 0:
+        s = 0.0                       # 防御负时间戳（理论上不出现，兜底）
     ms = int(round((s % 1) * 1000))
     total_s = int(s)
+    if ms == 1000:                    # 进位溢出 → 进到秒，否则产出 ",1000" 非法 4 位毫秒
+        ms = 0
+        total_s += 1
     hh = total_s // 3600
     mm = (total_s % 3600) // 60
     ss = total_s % 60
@@ -78,13 +83,20 @@ def seconds_to_srt_time(s):
 
 
 def write_srt(segments, out_path):
+    """写出 SRT。
+
+    输出 UTF-8 带 BOM + CRLF 行尾：Aegisub 在中文 Windows 上对无 BOM 文件
+    会按 GBK 解码，西语重音字符(á é í ó ú ñ ¿ ¡)的多字节序列被误读导致
+    解析失败、打不开。带 BOM 让 Aegisub 明确识别为 UTF-8；CRLF 是 Windows
+    习惯。读端用的是 utf-8-sig（BOM 容忍），完全对称，无副作用。
+    """
     lines = []
     for i, seg in enumerate(segments, 1):
         lines.append(str(i))
         lines.append(f"{seconds_to_srt_time(seg['start'])} --> {seconds_to_srt_time(seg['end'])}")
         lines.append(seg["text"])
         lines.append("")
-    Path(out_path).write_text("\n".join(lines), encoding="utf-8")
+    Path(out_path).write_text("\r\n".join(lines), encoding="utf-8-sig")
 
 
 def _is_alignment_char(ch):
@@ -378,7 +390,10 @@ def match_srt_to_words_dp(srt_lines, words):
     for i in range(len(result) - 1):
         next_start = result[i + 1]["start"]
         if result[i]["end"] > next_start - 0.05:
-            result[i]["end"] = max(next_start - 0.05, result[i]["start"] + 0.1)
+            # 优先 next_start-0.05（自然间隙），间隔过小时退化到 start+0.1 保最小时长；
+            # 再用 min(…, next_start) 兜住上限防重叠，max(…, start+0.02) 防零时长。
+            desired = max(next_start - 0.05, result[i]["start"] + 0.1)
+            result[i]["end"] = max(result[i]["start"] + 0.02, min(desired, next_start))
 
     return result
 
@@ -461,7 +476,9 @@ def match_srt_to_chars_dp(srt_lines, chars):
     for i in range(len(result) - 1):
         next_start = result[i + 1]["start"]
         if result[i]["end"] > next_start - 0.05:
-            result[i]["end"] = max(next_start - 0.05, result[i]["start"] + 0.1)
+            # 同 words 版：优先自然间隙，退化保最小时长，上限防重叠、下限防零时长。
+            desired = max(next_start - 0.05, result[i]["start"] + 0.1)
+            result[i]["end"] = max(result[i]["start"] + 0.02, min(desired, next_start))
 
     return result
 
@@ -569,7 +586,7 @@ def main():
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     audio_files = sorted(
-        f for ext in ("*.m4a", "*.mp3", "*.wav", "*.flac")
+        f for ext in ("*.m4a", "*.mp3", "*.wav", "*.WAV", "*.flac")
         for f in AUDIO_DIR.glob(ext)
     )
     if not audio_files:
