@@ -2,28 +2,46 @@
 
 把字幕文件的时间戳准确对齐到音频上。提供三套互补方案，覆盖不同录音质量场景。支持西班牙语、法语、俄语、日语，切换语言只需一个参数。
 
-**作者：** BryleXia · 北京第二外国语学院欧洲学院
+**作者：** BryleXia · 北京第二外国语学院欧洲银行
 
 **脚本：**
 - `align_srt_routeA.py` — 方案 A（参考文本强制对齐）
 - `align_srt_routeA_multi.py` — 方案 A 多进程并行版
 - `align_srt_routeB_llm.py` — 方案 B（ASR + LLM 语义对齐）
-- `align_srt_routeC_hybrid.py` — 方案 C（混合对齐）
-- `docx_to_srt.py` — 日语学院 docx 双列表格转 SRT（前端适配）
+- `align_srt_routeC_hybrid.py` — 方案 C（锚点 + CTC 混合对齐）
+- `docx_to_srt.py` — 日语学院 docx 双列表格转 SRT
+- `transcribe.py` — 课堂录音转文字
+
+**自动化工具：**
+- `.claude/skills/align-batch/` — 语料批处理 skill（见"本地预处理"一节）
+
+---
+
+## 30 秒上手
+
+把音频和参考 SRT 放到同一目录，运行：
+
+```bash
+# 单文件
+python align_srt_routeA.py --lang es
+
+# 多文件并行
+python align_srt_routeA_multi.py --lang es --audio-dir /path/to/input --output-dir /path/to/output --workers 4
+```
+
+输出目录里每个音频对应一个 `*.aligned.srt`，UTF-8 编码，Aegisub 可直接打开。
 
 ---
 
 ## 如何选择方案
 
-三个方案的核心区别在于如何处理"录音和字幕文稿不一致"的问题。
+三个方案的核心区别在于如何处理"录音和字幕文稿不一致"的问题：
 
-**方案 A** 假设录音与文稿高度一致，直接把字幕文字送入声学对齐器，跳过语音识别。速度快，无需 API，是首选方案。
+- **方案 A**：录音与文稿高度一致。直接把字幕文字送入声学对齐器，跳过语音识别。**首选**——速度快，无需 API。
+- **方案 B**：录音有口误、多读、漏读。先用 ASR 识别录音内容，再用 LLM 做语义匹配。适合录音质量参差不齐的场景。
+- **方案 C**：方案 B 部分成功时，把成功的句子当锚点，锚点之间交给方案 A 精对齐。兼顾两者的优势。
 
-**方案 B** 假设录音存在口误、多读、漏读等偏差。它先用语音识别获取"录音里实际说了什么"，再用大语言模型做语义匹配。适合录音质量参差不齐的场景。
-
-**方案 C** 介于两者之间。先用方案 B 获取一部分句子的时间戳作为锚点，锚点之间的空白窗口交给方案 A 精对齐。适合方案 B 无法全覆盖、但方案 A 也因文稿偏差无法独立工作的场景。
-
-简单来说：优先试 A，口误太多用 B，B 覆盖不全用 C。
+**决策顺序：A → B → C**。优先试 A；发现口误太多用 B；B 覆盖不全用 C。
 
 ---
 
@@ -31,7 +49,7 @@
 
 ### 为什么跳过语音识别
 
-传统的做法是：先用语音识别把音频转成文字，再把识别结果和字幕做匹配。问题出在第一步——当字幕里出现语音识别模型没见过的词（比如中文人名的西语音译），识别就会出错：
+传统做法是：先用语音识别把音频转成文字，再把识别结果和字幕做匹配。问题出在第一步——当字幕里出现语音识别模型没见过的词（比如中文人名的西语音译），识别就会出错：
 
 | 正确写法 | 语音识别（Whisper）输出 |
 |---------|----------------------|
@@ -61,6 +79,15 @@
 
 极少数无法对齐的句子（通常 1% 以内）不会给固定占位符，而是查找前后已对齐行的时间范围，按文字长度比例分配时间段。
 
+### 并行版（多文件推荐）
+
+`align_srt_routeA_multi.py` 让多个文件同时处理，充分利用 GPU：
+
+- 每个子进程独立加载模型，并行处理不同文件
+- 自动匹配两种 SRT 命名：`*_tgt.asr.qc.srt`（生产格式）和 `*.asr.qc.srt`（原格式）
+- 对齐逻辑全部复用 `align_srt_routeA.py`，无重复代码
+- 运行结束自动打印加速比
+
 ---
 
 ## 方案 B：ASR + LLM 语义对齐
@@ -82,7 +109,7 @@
 
 **第二步：SequenceMatcher 初筛。** 对每句文稿，在转录结果中向前滑动窗口搜索，计算字符相似度。相似度达到 0.40 的句子直接匹配成功，剩余的交给大语言模型。
 
-**第三步：LLM 语义裁判。** 将未匹配的文稿句子和所有转录段落一起发送给大语言模型（Qwen3.6-plus）。模型理解口误、重复、近义替换等语义关系后，给出每句文稿对应哪些转录段落。这是字符匹配做不到的——它知道"朗读者把 X 读成 Y"不意味着两句无关，而是同一内容的不同表达。
+**第三步：LLM 语义裁判。** 将未匹配的文稿句子和所有转录段落一起发送给大语言模型。模型理解口误、重复、近义替换等语义关系后，给出每句文稿对应哪些转录段落。这是字符匹配做不到的——它知道"朗读者把 X 读成 Y"不意味着两句无关，而是同一内容的不同表达。
 
 此方案在北京博物馆语料库项目中经过验证（日语 212 句，LLM 解决了汉字与假名跨书写系统的匹配问题），迁移到西语后解决的是口误导致的文本不一致问题。
 
@@ -96,7 +123,7 @@
 
 ---
 
-## 方案 C：混合对齐
+## 方案 C：锚点 + CTC 混合对齐
 
 ### 思路
 
@@ -127,26 +154,24 @@
 
 **日语特殊处理：** 日语不使用空格分词，方案 A 对日语采用字符级对齐——将文本拆为汉字/假名/外文字符序列，用 SequenceMatcher 做字符级 LCS 匹配。语速异常检测的阈值也从"词/秒"切换为"字/秒"。
 
-**输入格式：** 字幕需为 UTF-8 编码的 SRT 格式，法语、俄语、日语的 Unicode 字符会自动归一化处理。
-
 ---
 
-## 方案 A 并行版
+## 本地预处理：align-batch skill
 
-生产环境中每次任务通常包含多个音频-SRT 对。原脚本串行处理，GPU 利用率低（wav2vec2 约 1.2GB 显存，RTX PRO 6000 的 96GB 实测稳定 5 进程）。
+处理大量音频-SRT 对时，手动检查命名、压缩音频、生成服务器命令很繁琐。项目提供了一个 **Claude Code skill**（位于 `.claude/skills/align-batch/`），把这套重复劳动自动化。
 
-并行版（`align_srt_routeA_multi.py`）每个子进程独立加载模型，多个文件同时处理：
+skill 做的事情：
 
-```
-进程1: [加载 wav2vec2] → 处理 seg001
-进程2: [加载 wav2vec2] → 处理 seg002
-进程3: [加载 wav2vec2] → 处理 seg003
-...                               （5 × 1.2GB ≈ 6GB，显存充足）
-```
+- **扫描目录**：检查命名问题（空格、大小写、编号不一致、WAV/SRT 前缀不匹配、配对缺失）
+- **检查音频参数**：采样率、声道、比特率。48kHz 立体声之类的高码率音频在进入对齐模型前会被重采样，上传原文件浪费带宽——skill 会提示并协助压缩
+- **预检 SRT 内部格式**：BOM、行尾、ASS 标签、时间戳畸形、空文本等
+- **生成服务器命令**：HF 环境变量、对齐命令、打包命令，直接可复制粘贴
 
-- 5 个文件并行，总耗时接近最慢单个文件的耗时，加速比约 4–5x
-- 自动匹配两种 SRT 命名：`*_tgt.asr.qc.srt`（生产格式）和 `*.asr.qc.srt`（原格式）
-- 对齐逻辑全部复用 `align_srt_routeA.py`，无重复代码
+如果目录里只有 WAV 没有 SRT，skill 还会生成 WhisperX 转录命令——先让 ASR 跑出初稿 SRT（文本对、时间戳暂不精确），再交给 Route A 精对齐。
+
+**触发方式：** 在 Claude Code 中调用 `/align-batch`，给出目录路径即可。skill 会先报告发现的问题，等用户确认后再执行重命名/压缩，避免误操作。
+
+这个 skill 不是强制流程——如果你习惯自己处理预处理，直接用脚本即可。它的价值是把一批重复劳动打包成可复用、可分享的工具。
 
 ---
 
@@ -169,7 +194,6 @@ pip install faster-whisper openai
 **格式一（原格式）：**
 
 ```
-/root/
 ├── seg001.m4a
 ├── seg001.asr.qc.srt
 ├── seg002.mp3
@@ -180,7 +204,6 @@ pip install faster-whisper openai
 **格式二（生产格式）：**
 
 ```
-/root/
 ├── es_tour_serv_0004_seg001.m4a
 ├── es_tour_serv_0004_seg001_tgt.asr.qc.srt
 ├── es_tour_serv_0004_seg002.m4a
@@ -193,75 +216,43 @@ pip install faster-whisper openai
 **方案 A（推荐首选）：**
 
 ```bash
-# 默认俄语
-python align_srt_routeA.py
-
-# 切换语言
 python align_srt_routeA.py --lang es
-python align_srt_routeA.py --lang fr
-python align_srt_routeA.py --lang ja
-
-# 自定义目录
-python align_srt_routeA.py --lang ru --audio-dir /root/audio --output-dir /root/output
-python align_srt_routeA.py --lang ja --audio-dir /root/audio --output-dir /root/output
+python align_srt_routeA_multi.py --lang es --audio-dir /path/to/input --output-dir /path/to/output --workers 4
+python align_srt_routeA_multi.py --lang ja --audio-dir /path/to/input --output-dir /path/to/output --workers 4
 ```
-
-输出目录：`/root/aligned_routeA/`
-
-**方案 A 并行版（多个文件时推荐）：**
-
-```bash
-# 5 个进程同时跑
-python align_srt_routeA_multi.py --lang es --audio-dir /root/input --output-dir /root/aligned_routeA --workers 5
-
-# 调整并行数
-python align_srt_routeA_multi.py --lang ru --audio-dir /root/audio --output-dir /root/output --workers 5
-
-# 日语（字符级对齐）
-python align_srt_routeA_multi.py --lang ja --audio-dir /root/input --output-dir /root/aligned_routeA --workers 5
-```
-
-运行结束自动打印加速比。
 
 **方案 B（口误较多时使用）：**
 
 ```bash
-# 需先设置 LLM API Key
 export LLM_API_KEY="your-key-here"
-
 python align_srt_routeB_llm.py
 ```
-
-输出目录：`/root/aligned_routeB/`
 
 **方案 C（混合场景）：**
 
 ```bash
-# 需先设置 LLM API Key
 export LLM_API_KEY="your-key-here"
-
 python align_srt_routeC_hybrid.py
 ```
 
-输出目录：`/root/aligned_routeC/`
+### 4. 输出格式
 
-**课堂录音转文字：**
+所有方案的对齐输出都写为 **UTF-8 with BOM + CRLF 行尾**，保证 Aegisub 在西语/法语/俄语等带重音符号的语言环境下直接打开不会因编码问题乱码。
 
-```bash
-# 将录音转为纯文字稿
-python transcribe.py recording1.aac recording2.aac
-
-# 指定输出目录
-python transcribe.py recording1.aac --output-dir /root/transcripts
-```
+输出目录：
+- `aligned_routeA/` — 方案 A
+- `aligned_routeB/` — 方案 B
+- `aligned_routeC/` — 方案 C
 
 ---
 
-## docx 转 SRT（日语学院适配）
+## 实用工具
+
+### docx 转 SRT（日语学院适配）
 
 日语学院的译文常以 **Word 双列表格** 形式提供（第一列中文原文，第二列日文译文），与对齐脚本所需的 SRT 格式不兼容。
 
-### 表格格式要求
+**表格格式要求：**
 
 | 列 | 内容 |
 |---|---|
@@ -270,54 +261,24 @@ python transcribe.py recording1.aac --output-dir /root/transcripts
 
 - 每个单元格内可包含多个自然段落，以换行分隔。
 - 脚本自动跳过表头行。
-
-### 自动模糊匹配音频
-
-docx 文件名（如 `zh-ja_tour_muse_0020_seg001.docx`）与音频文件名（如 `ja_tour_muse_0020_seg001_tgt.wav`）常不一致。脚本会自动扫描同目录音频，用模糊匹配确定最佳 SRT 文件名，确保对齐脚本能正确配对。
-
-### 使用示例
+- 自动模糊匹配音频：docx 文件名与音频文件名不一致时能自动配对。
 
 ```bash
 # 基本用法（音频与 docx 同目录）
-python docx_to_srt.py --input-dir /root/日语/muse-raw20.21 --output-dir /root/日语/muse-raw20.21
+python docx_to_srt.py --input-dir /path/to/docx --output-dir /path/to/srt
 
 # 指定独立音频目录
-python docx_to_srt.py --input-dir /root/docx --output-dir /root/srt --audio-dir /root/audio
+python docx_to_srt.py --input-dir /path/to/docx --output-dir /path/to/srt --audio-dir /path/to/audio
 ```
 
-输出文件名示例：
-- `zh-ja_tour_muse_0020_seg001.docx` → `ja_tour_muse_0020_seg001_tgt.asr.qc.srt`
-
-### 完整日语工作流
+### 课堂录音转文字
 
 ```bash
-# Step 1: docx → SRT
-python docx_to_srt.py --input-dir /root/日语/muse-raw20.21 --output-dir /root/日语/muse-raw20.21
-
-# Step 2: SRT + 音频 → 对齐（5 进程并行）
-python align_srt_routeA_multi.py --lang ja --audio-dir /root/日语/muse-raw20.21 --output-dir /root/日语/muse-raw20.21/aligned --workers 5
+python transcribe.py recording1.aac recording2.aac
+python transcribe.py recording1.aac --output-dir /path/to/transcripts
 ```
 
 每段录音输出一个 `.txt` 文件，根据静音间隔自动分段。
-
-### 4. 工作流建议
-
-1. 优先用方案 A——不需 API、速度最快、对齐质量已验证
-2. 文件多时用并行版——`align_srt_routeA_multi.py`，约 4–5x 加速
-3. 发现口误/漏读/多读时，切换方案 B——LLM 能理解语义偏差
-4. 方案 B 覆盖不全时用方案 C——锚点 + CTC 混合，兼顾容错和精度
-
----
-
-## 与其他工具的对比
-
-| 工具 | 需要发音词典 | 需要 ASR | 口误处理 | 单段时长限制 |
-|------|:----------:|:-------:|:-------:|:----------:|
-| MFA（Montreal Forced Aligner） | 是 | 否 | 需手动 | 无 |
-| WhisperX 标准流程 | 否 | 是 | 差 | 无 |
-| **本方案 A** | 否 | 否 | 不适用 | 无 |
-| **本方案 B** | 否 | 是 | LLM 语义裁判 | 无 |
-| **本方案 C** | 否 | 是 + 否 | 锚点 + CTC 混合 | 无 |
 
 ---
 
@@ -347,21 +308,15 @@ python align_srt_routeA_multi.py --lang ja --audio-dir /root/日语/muse-raw20.2
 
 ---
 
-## 服务器环境（AutoDL）
+## 与其他工具对比
 
-```bash
-# HF 镜像源（每次新开终端需重新设置）
-export HF_ENDPOINT=https://hf-mirror.com
-
-# 模型缓存路径
-HF_HOME=/root/autodl-tmp/huggingface
-TORCH_HOME=/root/autodl-tmp/torch
-```
-
-已缓存模型：
-- `wav2vec2-large-xlsr-53-russian`（约 1.26GB，safetensors 格式）
-- `faster-whisper large-v3`
-- `Silero-VAD`
+| 工具 | 需要发音词典 | 需要 ASR | 口误处理 | 单段时长限制 |
+|------|:----------:|:-------:|:-------:|:----------:|
+| MFA（Montreal Forced Aligner） | 是 | 否 | 需手动 | 无 |
+| WhisperX 标准流程 | 否 | 是 | 差 | 无 |
+| **本方案 A** | 否 | 否 | 不适用 | 无 |
+| **本方案 B** | 否 | 是 | LLM 语义裁判 | 无 |
+| **本方案 C** | 否 | 是 + 否 | 锚点 + CTC 混合 | 无 |
 
 ---
 
