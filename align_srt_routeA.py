@@ -36,8 +36,8 @@ OUTPUT_DIR = Path("/root/aligned_routeA")
 DEVICE     = "cuda"
 LANGUAGE   = "ru"
 LANG_CONFIG = {
-    "es": {"name": "Spanish", "align_model_name": None},
-    "fr": {"name": "French", "align_model_name": None},
+    "es": {"name": "Spanish", "align_model_name": "jonatasgrosman/wav2vec2-large-xlsr-53-spanish"},
+    "fr": {"name": "French", "align_model_name": "jonatasgrosman/wav2vec2-large-xlsr-53-french"},
     "ru": {"name": "Russian", "align_model_name": "jonatasgrosman/wav2vec2-large-xlsr-53-russian"},
     "ja": {"name": "Japanese", "align_model_name": None},
 }

@@ -147,8 +147,8 @@ python align_srt_routeA_multi.py --lang es --audio-dir /path/to/input --output-d
 
 | 语言代码 | 语言 | 对齐模型 | 对齐粒度 | 语音识别模型 |
 |---------|------|---------|---------|------------|
-| `es` | 西班牙语 | WhisperX 默认 wav2vec2 | 词级 | faster-whisper large-v3 |
-| `fr` | 法语 | WhisperX 默认 wav2vec2 | 词级 | faster-whisper large-v3 |
+| `es` | 西班牙语 | `jonatasgrosman/wav2vec2-large-xlsr-53-spanish` | 词级 | faster-whisper large-v3 |
+| `fr` | 法语 | `jonatasgrosman/wav2vec2-large-xlsr-53-french` | 词级 | faster-whisper large-v3 |
 | `ru` | 俄语 | `jonatasgrosman/wav2vec2-large-xlsr-53-russian` | 词级 | faster-whisper large-v3 |
 | `ja` | 日语 | WhisperX 默认 wav2vec2 | 字符级 | faster-whisper large-v3 |
 
