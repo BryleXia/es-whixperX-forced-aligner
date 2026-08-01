@@ -144,9 +144,3 @@ export LLM_API_KEY="your-key"
 ```
 
 GPU 服务器（如 AutoDL）上运行效果最佳；wav2vec2 每进程约 15-20GB 显存，`--workers` 建议 ≤ 4。
-
-## 作者
-
-**BryleXia** · 北京第二外国语学院欧洲银行
-
-一个把「字幕对齐」这种苦差事做成全自动流水线的多语言学习者 👋
