@@ -41,6 +41,35 @@ python align_srt_routeA_multi.py --lang es \
 
 **决策顺序：A → B → C。** 先试 A，口误太多换 B，B 覆盖不全用 C。
 
+---
+
+## 使用的模型
+
+对齐与转录**分工明确**，全部选用各领域顶尖的公开模型：
+
+| 角色 | 模型 | 参数量 | 背景 |
+|---|---|---|---|
+| 对齐（西/法/俄） | `jonatasgrosman/wav2vec2-large-xlsr-53-spanish/french/russian` | **~3.17 亿** | XLSR-53 基座 + Common Voice 微调 |
+| 对齐（日语） | `wav2vec2-base-960h`（WhisperX 默认） | 9500 万 | LibriSpeech 960h 微调 |
+| 转录（无 SRT 分支） | **Whisper large-v3**（OpenAI） | **15.5 亿** | 500 万小时训练数据 |
+| VAD（时间戳修正） | Silero-VAD | 轻量（ONNX） | 实时语音活动检测 |
+
+### 对齐器：wav2vec2 XLSR-53（西/法/俄微调版）
+
+- **基座**：`facebook/wav2vec2-large-xlsr-53` — Meta AI 2021（Interspeech 论文），**53 种语言、56,000 小时**无标注语音自监督预训练，24 层 Transformer
+- **微调**：jonatasgrosman 系列在 **Common Voice** 上微调，西语 WER **8.81%**（2021 年社区最佳之一，比 Facebook 官方微调版 16.99% 好近一倍）
+- 只用 16kHz 单声道音频，与项目的压缩管线完全匹配
+
+### 转录器：Whisper large-v3（OpenAI）
+
+仅「目录无参考 SRT」分支使用，负责出初稿文本：
+- **15.5 亿参数**，2023 年 11 月发布，多语言 SOTA 之一
+- 训练数据 **500 万小时**（100 万小时弱标注 + 400 万小时伪标注），相比 v2 错误率再降 10–20%
+
+### 分工逻辑
+
+> **Whisper 出文本，wav2vec2 出精确时间戳。** 对齐环节不依赖转录结果——字幕里出现模型没见过的生僻词（人名、音译）也照样对齐。
+
 ### 方案 A 为什么靠谱
 
 传统流程先做语音识别再匹配字幕，一旦字幕里有模型没见过的词（如西语中的中文人名音译），识别就出错：
