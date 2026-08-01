@@ -13,7 +13,7 @@
 - `transcribe.py` — 课堂录音转文字
 
 **自动化工具：**
-- `.claude/skills/align-batch/` — 语料批处理 skill（见"本地预处理"一节）
+- `.claude/skills/align-batch/` — 语料批处理 skill：本地预处理 + **SSH 直连服务器全自动对齐**（见「语料批处理」一节）
 
 ---
 
@@ -156,18 +156,42 @@ python align_srt_routeA_multi.py --lang es --audio-dir /path/to/input --output-d
 
 ---
 
-## 本地预处理：align-batch skill
+## 语料批处理：align-batch skill（本地预处理 + 服务器自动化）
 
-处理大量音频-SRT 对时，手动检查命名、压缩音频、生成服务器命令很繁琐。项目提供了一个 **Claude Code skill**（位于 `.claude/skills/align-batch/`），把这套重复劳动自动化。
+处理大量音频-SRT 对时，手动检查命名、压缩音频、上传、跑对齐、下载结果很繁琐。项目提供了一个 **Claude Code skill**（位于 `.claude/skills/align-batch/`），把这套重复劳动自动化。
+
+### 工作流（已闭环）
+
+```
+本地目录 (WAV+SRT)
+   │  ① 扫描命名问题（空格/大小写/编号/配对）
+   │  ② 压缩为 16kHz 单声道（可省 3-5 倍带宽）
+   ▼
+[SSH 直连 AutoDL 服务器]
+   │  ③ 上传压缩目录
+   │  ④ （无 SRT 时）WhisperX 转录出初稿
+   │  ⑤ Route A 精对齐（wav2vec2 + GPU）
+   │  ⑥ 打包
+   ▼
+本地 ←── ⑦ 下载对齐结果 zip
+```
 
 skill 做的事情：
 
 - **扫描目录**：检查命名问题（空格、大小写、编号不一致、WAV/SRT 前缀不匹配、配对缺失）
-- **检查音频参数**：采样率、声道、比特率。48kHz 立体声之类的高码率音频在进入对齐模型前会被重采样，上传原文件浪费带宽——skill 会提示并协助压缩
-- **预检 SRT 内部格式**：BOM、行尾、ASS 标签、时间戳畸形、空文本等
-- **生成服务器命令**：HF 环境变量、对齐命令、打包命令，直接可复制粘贴
+- **检查音频参数**：采样率、声道、比特率。48kHz 立体声之类的高码率音频在进入对齐模型前会被重采样，上传原文件浪费带宽——skill 会提示并协助压缩。**注意**：meta.json 的 `sample_rate` 字段经常不可信，必须用 Python `wave` 模块实测 WAV 头
+- **SSH 直连**（自动模式）：配置一次公钥后，上传/转录/对齐/打包/下载全部自动完成，无需复制粘贴命令
+- **生成服务器命令**（手动模式）：SSH 不可用时，生成 HF 环境变量、对齐命令、打包命令，直接可复制粘贴
 
-如果目录里只有 WAV 没有 SRT，skill 还会生成 WhisperX 转录命令——先让 ASR 跑出初稿 SRT（文本对、时间戳暂不精确），再交给 Route A 精对齐。
+如果目录里只有 WAV 没有 SRT，skill 会先走 WhisperX 转录分支——让 ASR 跑出初稿 SRT（文本对、时间戳暂不精确），再交给 Route A 精对齐（WhisperX 出文本，wav2vec2 出精确时间戳）。
+
+### SSH 直连配置（一次性）
+
+1. 本地生成密钥：`ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""`
+2. 把公钥（`~/.ssh/id_ed25519.pub`）部署到 AutoDL 实例的 `~/.ssh/authorized_keys`（或在 AutoDL 控制台 → 实例 → 安全 → **SSH 密钥** 里添加——这样新建/克隆实例自动带上）
+3. 给 Claude Code 提供 SSH 地址 + 端口（AutoDL 控制台 → 实例详情 → SSH 指令）
+
+**换新实例时**只需重新提供 SSH 地址 + 端口（每次实例不同）；克隆实例公钥自动保留，新建实例需重新部署一次公钥。
 
 **触发方式：** 在 Claude Code 中调用 `/align-batch`，给出目录路径即可。skill 会先报告发现的问题，等用户确认后再执行重命名/压缩，避免误操作。
 
