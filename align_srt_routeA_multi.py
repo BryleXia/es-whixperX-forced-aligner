@@ -60,6 +60,7 @@ def worker_fn(task):
     language = task["language"]
     device = task["device"]
     worker_id = task["worker_id"]
+    model_name = task.get("align_model")  # 可选：覆盖 LANG_CONFIG 默认模型
 
     t0 = time.time()
     prefix = f"[W{worker_id}]"
@@ -69,11 +70,11 @@ def worker_fn(task):
         routeA.LANGUAGE = language
 
         # ── 2. 加载对齐模型 ──
-        print(f"{prefix} 加载对齐模型... ({audio_path.name})")
+        print(f"{prefix} 加载对齐模型: {model_name or 'WhisperX default'}... ({audio_path.name})")
         lang_cfg = routeA.LANG_CONFIG[language]
         load_kwargs = {"language_code": language, "device": device}
-        if lang_cfg["align_model_name"]:
-            load_kwargs["model_name"] = lang_cfg["align_model_name"]
+        if model_name:
+            load_kwargs["model_name"] = model_name
 
         import whisperx
         align_model, metadata = whisperx.load_align_model(**load_kwargs)
@@ -154,6 +155,8 @@ def main():
                         help="对齐结果输出目录")
     parser.add_argument("--workers", type=int, default=5,
                         help="并行进程数 (默认: 5)")
+    parser.add_argument("--align-model", default=None,
+                        help="覆盖对齐模型 (默认: 使用 LANG_CONFIG 配置)")
     args = parser.parse_args()
 
     audio_dir = Path(args.audio_dir)
@@ -183,6 +186,7 @@ def main():
             "language": args.lang,
             "device": "cuda",
             "worker_id": i + 1,
+            "align_model": args.align_model,
         })
 
     if not tasks:
@@ -191,8 +195,9 @@ def main():
 
     # ── 打印任务概览 ──
     lang_cfg = routeA.LANG_CONFIG[args.lang]
+    model_name = args.align_model or lang_cfg["align_model_name"] or "WhisperX default"
     print(f"语言: {args.lang} ({lang_cfg['name']})")
-    print(f"对齐模型: {lang_cfg['align_model_name'] or 'WhisperX default'}")
+    print(f"对齐模型: {model_name}")
     print(f"并行进程: {min(args.workers, len(tasks))}")
     print(f"待处理: {len(tasks)} 个文件")
     print()

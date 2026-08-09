@@ -60,15 +60,17 @@ python align_srt_routeA_multi.py --lang es \
 
 | 角色 | 模型 | 参数量 | 背景 |
 |---|---|---|---|
-| 对齐（西/法/俄） | `jonatasgrosman/wav2vec2-large-xlsr-53-spanish/french/russian` | **~3.17 亿** | XLSR-53 基座 + Common Voice 微调 |
+| 对齐（西/法） | `VOXPOPULI_ASR_BASE_10K_ES/FR`（WhisperX 默认，torchaudio 自带） | 9500 万 | VoxPopuli 预训练（1 万小时）+ 欧洲议会西/法语微调 |
+| 对齐（俄） | `jonatasgrosman/wav2vec2-large-xlsr-53-russian` | **~3.17 亿** | XLSR-53 基座 + Common Voice 微调 |
 | 对齐（日语） | `wav2vec2-base-960h`（WhisperX 默认） | 9500 万 | LibriSpeech 960h 微调 |
 | 转录（无 SRT 分支） | **Whisper large-v3**（OpenAI） | **15.5 亿** | 500 万小时训练数据 |
 | VAD（时间戳修正） | Silero-VAD | 轻量（ONNX） | 实时语音活动检测 |
 
-### 对齐器：wav2vec2 XLSR-53（西/法/俄微调版）
+### 对齐器：wav2vec2（西/法用默认，俄用 XLSR-53 微调）
 
-- **基座**：`facebook/wav2vec2-large-xlsr-53` — Meta AI 2021（Interspeech 论文），**53 种语言、56,000 小时**无标注语音自监督预训练，24 层 Transformer
-- **微调**：jonatasgrosman 系列在 **Common Voice** 上微调，西语 WER **8.81%**（2021 年社区最佳之一，比 Facebook 官方微调版 16.99% 好近一倍）
+- **西/法**：`VOXPOPULI_ASR_BASE_10K_ES/FR` — torchaudio 自带，wav2vec2-base 架构，VoxPopuli（欧洲议会多语言）1 万小时预训练 + 166 小时西语微调
+  - 曾升级为 jonatasgrosman XLSR-53 微调模型（WER 更低），但实战发现对齐从第一句开始偏移，**已换回默认模型**
+- **俄**：`jonatasgrosman/wav2vec2-large-xlsr-53-russian` — XLSR-53 基座 + Common Voice 微调（俄语实测正常，保留）
 - 只用 16kHz 单声道音频，与项目的压缩管线完全匹配
 
 ### 转录器：Whisper large-v3（OpenAI）

@@ -36,8 +36,10 @@ OUTPUT_DIR = Path("/root/aligned_routeA")
 DEVICE     = "cuda"
 LANGUAGE   = "ru"
 LANG_CONFIG = {
-    "es": {"name": "Spanish", "align_model_name": "jonatasgrosman/wav2vec2-large-xlsr-53-spanish"},
-    "fr": {"name": "French", "align_model_name": "jonatasgrosman/wav2vec2-large-xlsr-53-french"},
+    # es/fr 用 WhisperX 默认 torchaudio 模型（VOXPOPULI 系列）：
+    # 实测 jonatasgrosman 微调模型对齐结果从第一句开始偏移，换回默认模型后正常
+    "es": {"name": "Spanish", "align_model_name": None},
+    "fr": {"name": "French", "align_model_name": None},
     "ru": {"name": "Russian", "align_model_name": "jonatasgrosman/wav2vec2-large-xlsr-53-russian"},
     "ja": {"name": "Japanese", "align_model_name": None},
 }
