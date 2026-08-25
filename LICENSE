@@ -1,0 +1,90 @@
+Forced-Aligner-Multilingual License
+(Custom Source-Available License)
+
+Copyright © 2026 BryleXia. All rights reserved.
+
+The source code in this repository is made publicly viewable for
+reference and evaluation.
+
+1. USE GRANTED WITHOUT PERMISSION
+
+You may, without asking:
+
+  (a) view and study the source code;
+
+  (b) run the software on hardware you control, solely for your own
+      private, personal, non-commercial evaluation or learning.
+
+2. USES REQUIRING PRIOR WRITTEN CONSENT
+
+Any use other than the uses listed in Section 1 requires the
+copyright holder's prior written consent. This includes, but is not
+limited to:
+
+  (a) any commercial use;
+
+  (b) any institutional, organized, or systematic use, including
+      academic research, teaching, corpus construction, or
+      database/dataset building, whether compensated or not;
+
+  (c) using the software, or any output produced with it, to
+      construct, assemble, publish, release, sell, license, or
+      otherwise distribute a corpus, dataset, subtitle collection,
+      or any derived collection, in whole or in part;
+
+  (d) copying, modifying, adapting, translating, redistributing,
+      sublicensing, renting, leasing, hosting, or otherwise making
+      the software or its source code available to any third party,
+      in source or object form, in whole or in part;
+
+  (e) removing or altering any copyright notice, license text, or
+      attribution.
+
+Consent may be requested by contacting the repository owner.
+
+3. COPYRIGHT
+
+The software and all rights therein remain the exclusive property of
+the copyright holder. Nothing in this license transfers ownership.
+
+4. INDIVIDUAL AGREEMENTS
+
+The copyright holder may, at their sole discretion, grant additional
+rights (for example, academic cooperation, sponsored research, or
+commercial licenses) on a case-by-case basis. Institutions and
+individuals are welcome to contact the repository owner to discuss
+consent for a specific use.
+
+5. DISCLAIMER
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH
+THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+中文简述（非正式参考译文；如有歧义，以英文原文为准）
+
+版权所有 © 2026 BryleXia，保留一切权利。本仓库源代码仅作公开
+阅览与评估之用。
+
+无需许可的用法：仅限个人、私下、非商用的查看、学习与运行评估。
+
+除上述用途外，任何使用（包括但不限于以下情形）均需事先取得版权
+人的书面同意：
+
+  · 任何商业用途；
+  · 任何机构化、成建制、成体系的用途，包括学术研究、教学、
+    语料库建设、数据库/数据集建设（无论是否有偿）；
+  · 利用本软件或其产出，构建、汇编、发布、销售、许可或以任何
+    形式对外分发语料库、数据集、字幕合集或任何衍生合集（全部
+    或部分）；
+  · 复制、修改、翻译、再分发、分许可、出租、托管或以任何形式
+    将本软件或其源代码提供给第三方；
+  · 删除或改动任何版权声明、许可文本或署名。
+
+如需就特定用途取得同意（例如学术合作、委托研究或商业授权），
+欢迎单独联系仓库所有者协商。
